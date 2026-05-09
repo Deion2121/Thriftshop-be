@@ -1,0 +1,1 @@
+INSERT INTO products (name, brand, category, subCategory, price, image) VALUES ('Nike Dunk', 'Nike', 'Men', 'Shoes', 120, ''), ('Adidas Spezial', 'Adidas', 'Men', 'Shoes', 110, ''), ('Carhartt Hoodie', 'Carhartt', 'Men', 'Hoodies', 85, ''), ('Nike T-Shirt', 'Nike', 'Men', 'T-Shirts', 45, ''), ('Adidas T-Shirt', 'Adidas', 'Men', 'T-Shirts', 40, '');
