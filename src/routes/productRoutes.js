@@ -1,8 +1,38 @@
 import express from 'express';
-import db from '../config/db.js';
+import Joi from 'joi';
+import db, { databaseAvailable } from '../config/db.js';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
+import { csrfProtection } from '../middleware/security.js';
 
 const router = express.Router();
+const isProduction = process.env.NODE_ENV === 'production';
+
+const idSchema = Joi.number().integer().positive().required();
+
+const fallbackProducts = [
+  { id: 101, name: 'Nike Dunk Low', brand: 'Nike', category: 'Shoes', subCategory: 'Lifestyle', price: 120, image_url: '' },
+  { id: 102, name: 'Adidas Spezial', brand: 'Adidas', category: 'Shoes', subCategory: 'Lifestyle', price: 110, image_url: '' },
+  { id: 103, name: 'Carhartt Hoodie', brand: 'Carhartt', category: 'Men', subCategory: 'Hoodies', price: 85, image_url: '' },
+  { id: 104, name: 'Nike Graphic Tee', brand: 'Nike', category: 'Men', subCategory: 'T-Shirts', price: 45, image_url: '' },
+  { id: 105, name: 'Adidas Vintage Tee', brand: 'Adidas', category: 'Women', subCategory: 'Tops', price: 40, image_url: '' },
+  { id: 106, name: 'Carhartt Utility Pants', brand: 'Carhartt', category: 'Men', subCategory: 'Pants', price: 95, image_url: '' },
+  { id: 107, name: 'New Balance Basic Tee', brand: 'New Balance', category: 'Men', subCategory: 'T-Shirts', price: 35, image_url: '' },
+];
+
+const productSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255).required(),
+  brand: Joi.string().trim().min(1).max(255).required(),
+  category: Joi.string().trim().min(1).max(255).required(),
+  subCategory: Joi.string().trim().max(255).default('General'),
+  price: Joi.number().positive().precision(2).max(999999.99).required(),
+  image: Joi.string().trim().uri({ allowRelative: true }).max(500).allow('').default(''),
+}).required();
+
+const validateId = (value) => {
+  const { error, value: id } = idSchema.validate(value);
+  if (error) return null;
+  return id;
+};
 
 // Helper to ensure tables exist
 const ensureTableExists = async () => {
@@ -27,8 +57,12 @@ const ensureTableExists = async () => {
   }
 };
 
-// Debug endpoint
-router.get('/debug', async (req, res) => {
+// Development-only debug endpoint
+router.get('/debug', authMiddleware, adminMiddleware, async (req, res) => {
+  if (isProduction) {
+    return res.status(404).json({ message: 'Route not found' });
+  }
+
   try {
     const [tables] = await db.query("SHOW TABLES LIKE 'products'");
     const hasProductsTable = tables.length > 0;
@@ -46,8 +80,12 @@ router.get('/debug', async (req, res) => {
   }
 });
 
-// Seed products endpoint (for development)
-router.post('/seed', async (req, res) => {
+// Development-only seed products endpoint
+router.post('/seed', authMiddleware, adminMiddleware, csrfProtection, async (req, res) => {
+  if (isProduction) {
+    return res.status(404).json({ message: 'Route not found' });
+  }
+
   try {
     const [count] = await db.query('SELECT COUNT(*) as count FROM products');
     if (count[0].count > 0) {
@@ -70,11 +108,20 @@ router.post('/seed', async (req, res) => {
 
 // GET all products
 router.get('/', async (req, res, next) => {
+  if (!databaseAvailable && !isProduction) {
+    return res.json(fallbackProducts);
+  }
+
   try {
     await ensureTableExists();
     const [rows] = await db.query('SELECT * FROM products');
     res.json(rows);
   } catch (err) {
+    if (!isProduction) {
+      console.warn('Using fallback products because the database is unavailable:', err.code || err.message);
+      return res.json(fallbackProducts);
+    }
+
     console.error('Get products error:', err);
     next(err);
   }
@@ -83,9 +130,14 @@ router.get('/', async (req, res, next) => {
 // GET single product
 router.get('/:id', async (req, res, next) => {
   try {
+    const productId = validateId(req.params.id);
+    if (!productId) {
+      return res.status(400).json({ message: 'Invalid product id' });
+    }
+
     const [rows] = await db.query(
       'SELECT * FROM products WHERE id = ?',
-      [req.params.id]
+      [productId]
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
@@ -97,14 +149,19 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // CREATE product (Admin only)
-router.post('/', authMiddleware, adminMiddleware, async (req, res, next) => {
+router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, res, next) => {
   try {
     await ensureTableExists();
-    const { name, brand, category, subCategory, price, image } = req.body;
+    const { error, value } = productSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
 
-    if (!name || !brand || !category || price === undefined || price === null || price === '') {
-      return res.status(400).json({ message: 'Name, brand, category, and price are required' });
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
     }
+
+    const { name, brand, category, subCategory, price, image } = value;
 
     const [result] = await db.query(
       'INSERT INTO products (name, brand, category, subCategory, price, image_url) VALUES (?, ?, ?, ?, ?, ?)',
@@ -131,17 +188,27 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res, next) => {
 });
 
 // UPDATE product (Admin only)
-router.put('/:id', authMiddleware, adminMiddleware, async (req, res, next) => {
+router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, res, next) => {
   try {
-    const { name, brand, category, subCategory, price, image } = req.body;
-
-    if (!name || !brand || !category || price === undefined || price === null || price === '') {
-      return res.status(400).json({ message: 'Name, brand, category, and price are required' });
+    const productId = validateId(req.params.id);
+    if (!productId) {
+      return res.status(400).json({ message: 'Invalid product id' });
     }
+
+    const { error, value } = productSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
+
+    const { name, brand, category, subCategory, price, image } = value;
 
     const [result] = await db.query(
       'UPDATE products SET name=?, brand=?, category=?, subCategory=?, price=?, image_url=? WHERE id=?',
-      [name, brand, category, subCategory || 'General', Number(price), image || '', req.params.id]
+      [name, brand, category, subCategory || 'General', Number(price), image || '', productId]
     );
 
     if (result.affectedRows === 0) {
@@ -149,7 +216,7 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res, next) => {
     }
 
     res.json({
-      id: Number(req.params.id),
+      id: productId,
       name,
       brand,
       category,
@@ -163,11 +230,16 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res, next) => {
 });
 
 // DELETE product (Admin only)
-router.delete('/:id', authMiddleware, adminMiddleware, async (req, res, next) => {
+router.delete('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, res, next) => {
   try {
+    const productId = validateId(req.params.id);
+    if (!productId) {
+      return res.status(400).json({ message: 'Invalid product id' });
+    }
+
     const [result] = await db.query(
       'DELETE FROM products WHERE id = ?',
-      [req.params.id]
+      [productId]
     );
 
     if (result.affectedRows === 0) {

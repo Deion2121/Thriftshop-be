@@ -1,4 +1,5 @@
 import * as userService from "../services/user.service.js";
+import { updateProfileSchema } from "../validators/userValidator.js";
 
 export const getCurrentUser = async (req, res, next) => {
   try {
@@ -24,9 +25,18 @@ export const updateProfile = async (req, res, next) => {
       return res.status(401).json({ message: "Not authenticated" });
     }
 
+    const { error, value } = updateProfileSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
+
     const updatedUser = await userService.updateUserProfile(
       req.user.id,
-      req.body
+      value
     );
 
     res.json(updatedUser);

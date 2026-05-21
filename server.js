@@ -12,6 +12,11 @@ const server = app.listen(PORT, () => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err);
+  if (process.env.NODE_ENV !== 'production' && err?.code === 'ECONNREFUSED') {
+    console.warn('Ignoring database connection refusal in development fallback mode.');
+    return;
+  }
+
   server.close(() => process.exit(1));
 });
 

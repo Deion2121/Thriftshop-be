@@ -3,10 +3,18 @@ import { hashPassword, comparePassword } from "../utils/password.js";
 import jwt from "jsonwebtoken";
 import AppError from "../utils/appError.js";
 
+const getJwtSecret = () => {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    throw new AppError("Server authentication is not configured", 500);
+  }
+
+  return process.env.JWT_SECRET;
+};
+
 // -----------------------------
 // Register user
 // -----------------------------
-export const registerUser = async ({ email, password, role = "user" }) => {
+export const registerUser = async ({ email, password }) => {
   const existingUser = await userRepository.findByEmail(email);
   if (existingUser) throw new AppError("Email already exists", 400);
 
@@ -15,7 +23,7 @@ export const registerUser = async ({ email, password, role = "user" }) => {
   return await userRepository.createUser({
     email,
     password: hashedPassword,
-    role,
+    role: "user",
   });
 };
 
@@ -43,7 +51,7 @@ export const loginUser = async ({ email, password }) => {
       email: user.email,
       role: user.role,
     },
-    process.env.JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: "1d" }
   );
 
