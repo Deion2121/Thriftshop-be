@@ -37,6 +37,14 @@ export const updateUser = async (id, { email }) => {
   return { id, email };
 };
 
+export const updatePassword = async (id, password) => {
+  const [result] = await db.query(
+    'UPDATE users SET password = ? WHERE id = ?',
+    [password, id]
+  );
+  return result.affectedRows > 0;
+};
+
 // Optional: get all users
 export const getAllUsers = async () => {
   const [rows] = await db.query('SELECT id, email, role FROM users');

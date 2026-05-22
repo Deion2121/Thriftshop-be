@@ -1,5 +1,5 @@
 import * as userService from "../services/user.service.js";
-import { updateProfileSchema } from "../validators/userValidator.js";
+import { updatePasswordSchema, updateProfileSchema } from "../validators/userValidator.js";
 
 export const getCurrentUser = async (req, res, next) => {
   try {
@@ -60,6 +60,28 @@ export const getUsers = async (req, res, next) => {
     }));
 
     res.json(safeUsers);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updatePassword = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const { error, value } = updatePasswordSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
+
+    const result = await userService.updateUserPassword(req.user.id, value);
+    res.json(result);
   } catch (err) {
     next(err);
   }

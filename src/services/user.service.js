@@ -104,6 +104,20 @@ export const updateUserProfile = async (id, data) => {
   return updatedUser;
 };
 
+export const updateUserPassword = async (id, { currentPassword, newPassword }) => {
+  const user = await userRepository.findByEmail((await userRepository.findById(id))?.email);
+  if (!user) throw new AppError("User not found", 404);
+
+  const isValid = await comparePassword(currentPassword, user.password);
+  if (!isValid) throw new AppError("Current password is incorrect", 400);
+
+  const hashedPassword = await hashPassword(newPassword);
+  const updated = await userRepository.updatePassword(id, hashedPassword);
+  if (!updated) throw new AppError("Failed to update password", 500);
+
+  return { message: "Password updated" };
+};
+
 // -----------------------------
 // Get all users
 // -----------------------------

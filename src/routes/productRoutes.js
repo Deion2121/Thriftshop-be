@@ -10,14 +10,41 @@ const isProduction = process.env.NODE_ENV === 'production';
 const idSchema = Joi.number().integer().positive().required();
 
 const fallbackProducts = [
-  { id: 101, name: 'Nike Dunk Low', brand: 'Nike', category: 'Shoes', subCategory: 'Lifestyle', price: 120, image_url: '' },
-  { id: 102, name: 'Adidas Spezial', brand: 'Adidas', category: 'Shoes', subCategory: 'Lifestyle', price: 110, image_url: '' },
-  { id: 103, name: 'Carhartt Hoodie', brand: 'Carhartt', category: 'Men', subCategory: 'Hoodies', price: 85, image_url: '' },
-  { id: 104, name: 'Nike Graphic Tee', brand: 'Nike', category: 'Men', subCategory: 'T-Shirts', price: 45, image_url: '' },
-  { id: 105, name: 'Adidas Vintage Tee', brand: 'Adidas', category: 'Women', subCategory: 'Tops', price: 40, image_url: '' },
-  { id: 106, name: 'Carhartt Utility Pants', brand: 'Carhartt', category: 'Men', subCategory: 'Pants', price: 95, image_url: '' },
-  { id: 107, name: 'New Balance Basic Tee', brand: 'New Balance', category: 'Men', subCategory: 'T-Shirts', price: 35, image_url: '' },
+  { id: 101, name: 'Nike Dunk Low', brand: 'Nike', category: 'Shoes', subCategory: 'Lifestyle', price: 120, image_url: '', sizes: [] },
+  { id: 102, name: 'Adidas Spezial', brand: 'Adidas', category: 'Shoes', subCategory: 'Lifestyle', price: 110, image_url: '', sizes: [] },
+  { id: 103, name: 'Carhartt Hoodie', brand: 'Carhartt', category: 'Men', subCategory: 'Hoodies', price: 85, image_url: '', sizes: ['S', 'M', 'L', 'XL'] },
+  { id: 104, name: 'Nike Graphic Tee', brand: 'Nike', category: 'Men', subCategory: 'T-Shirts', price: 45, image_url: '', sizes: ['S', 'M', 'L', 'XL'] },
+  { id: 105, name: 'Adidas Vintage Tee', brand: 'Adidas', category: 'Women', subCategory: 'Tops', price: 40, image_url: '', sizes: ['S', 'M', 'L'] },
+  { id: 106, name: 'Carhartt Utility Pants', brand: 'Carhartt', category: 'Men', subCategory: 'Pants', price: 95, image_url: '', sizes: ['S', 'M', 'L', 'XL'] },
+  { id: 107, name: 'New Balance Basic Tee', brand: 'New Balance', category: 'Men', subCategory: 'T-Shirts', price: 35, image_url: '', sizes: ['S', 'M', 'L'] },
 ];
+
+const parseSizes = (sizes) => {
+  if (Array.isArray(sizes)) {
+    return sizes.map((size) => String(size).trim()).filter(Boolean);
+  }
+
+  if (!sizes) return [];
+
+  try {
+    const parsed = JSON.parse(sizes);
+    if (Array.isArray(parsed)) {
+      return parsed.map((size) => String(size).trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall through to comma-separated parsing for older/manual data.
+  }
+
+  return String(sizes)
+    .split(',')
+    .map((size) => size.trim())
+    .filter(Boolean);
+};
+
+const normalizeProductRow = (product = {}) => ({
+  ...product,
+  sizes: parseSizes(product.sizes),
+});
 
 const productSchema = Joi.object({
   name: Joi.string().trim().min(1).max(255).required(),
@@ -25,6 +52,12 @@ const productSchema = Joi.object({
   category: Joi.string().trim().min(1).max(255).required(),
   subCategory: Joi.string().trim().max(255).default('General'),
   price: Joi.number().positive().precision(2).max(999999.99).required(),
+  sizes: Joi.alternatives()
+    .try(
+      Joi.array().items(Joi.string().trim().max(50)).default([]),
+      Joi.string().allow('').default('')
+    )
+    .default([]),
   image: Joi.string().trim().uri({ allowRelative: true }).max(500).allow('').default(''),
 }).required();
 
@@ -46,10 +79,17 @@ const ensureTableExists = async () => {
         subCategory VARCHAR(255) DEFAULT 'General',
         price DECIMAL(10,2) NOT NULL,
         image_url VARCHAR(500) DEFAULT '',
+        sizes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+
+    const [columns] = await db.query("SHOW COLUMNS FROM products LIKE 'sizes'");
+    if (columns.length === 0) {
+      await db.query('ALTER TABLE products ADD COLUMN sizes TEXT NULL AFTER image_url');
+    }
+
     return true;
   } catch (e) {
     console.error('Table creation error:', e);
@@ -115,7 +155,7 @@ router.get('/', async (req, res, next) => {
   try {
     await ensureTableExists();
     const [rows] = await db.query('SELECT * FROM products');
-    res.json(rows);
+    res.json(rows.map(normalizeProductRow));
   } catch (err) {
     if (!isProduction) {
       console.warn('Using fallback products because the database is unavailable:', err.code || err.message);
@@ -130,6 +170,7 @@ router.get('/', async (req, res, next) => {
 // GET single product
 router.get('/:id', async (req, res, next) => {
   try {
+    await ensureTableExists();
     const productId = validateId(req.params.id);
     if (!productId) {
       return res.status(400).json({ message: 'Invalid product id' });
@@ -142,7 +183,7 @@ router.get('/:id', async (req, res, next) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
-    res.json(rows[0]);
+    res.json(normalizeProductRow(rows[0]));
   } catch (err) {
     next(err);
   }
@@ -162,10 +203,11 @@ router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, re
     }
 
     const { name, brand, category, subCategory, price, image } = value;
+    const sizes = parseSizes(value.sizes);
 
     const [result] = await db.query(
-      'INSERT INTO products (name, brand, category, subCategory, price, image_url) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, brand, category, subCategory || 'General', Number(price), image || '']
+      'INSERT INTO products (name, brand, category, subCategory, price, image_url, sizes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, brand, category, subCategory || 'General', Number(price), image || '', JSON.stringify(sizes)]
     );
 
     if (!result || !result.insertId) {
@@ -179,7 +221,8 @@ router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, re
       category,
       subCategory: subCategory || 'General',
       price: Number(price),
-      image_url: image || ''
+      image_url: image || '',
+      sizes
     });
   } catch (err) {
     console.error('Product creation error:', err);
@@ -190,6 +233,7 @@ router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, re
 // UPDATE product (Admin only)
 router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, res, next) => {
   try {
+    await ensureTableExists();
     const productId = validateId(req.params.id);
     if (!productId) {
       return res.status(400).json({ message: 'Invalid product id' });
@@ -205,10 +249,11 @@ router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, 
     }
 
     const { name, brand, category, subCategory, price, image } = value;
+    const sizes = parseSizes(value.sizes);
 
     const [result] = await db.query(
-      'UPDATE products SET name=?, brand=?, category=?, subCategory=?, price=?, image_url=? WHERE id=?',
-      [name, brand, category, subCategory || 'General', Number(price), image || '', productId]
+      'UPDATE products SET name=?, brand=?, category=?, subCategory=?, price=?, image_url=?, sizes=? WHERE id=?',
+      [name, brand, category, subCategory || 'General', Number(price), image || '', JSON.stringify(sizes), productId]
     );
 
     if (result.affectedRows === 0) {
@@ -222,7 +267,8 @@ router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, 
       category,
       subCategory: subCategory || 'General',
       price: Number(price),
-      image_url: image || ''
+      image_url: image || '',
+      sizes
     });
   } catch (err) {
     next(err);

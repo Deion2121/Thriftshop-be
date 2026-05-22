@@ -168,6 +168,16 @@ const ensureOrderTableSchema = async (connection) => {
         )
       `);
 
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS admin_settings (
+          id TINYINT PRIMARY KEY DEFAULT 1,
+          settings JSON NOT NULL,
+          updated_by INT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
       databaseAvailable = true;
       console.log('MySQL connected and tables initialized');
       connection.release();

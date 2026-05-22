@@ -27,6 +27,7 @@ router.get("/me", userController.getCurrentUser);
 
 // ✅ Update current user profile
 router.put("/profile", csrfProtection, userController.updateProfile);
+router.put("/password", csrfProtection, userController.updatePassword);
 
 // -----------------------------
 // ADMIN ROUTES

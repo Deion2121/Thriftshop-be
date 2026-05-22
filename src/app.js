@@ -4,6 +4,7 @@ import userRoutes from './routes/routes.js';
 import assetRoutes from './routes/assetRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import productRoutes from './routes/productRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
 import { securityMiddleware } from './middleware/security.js';
 
 const app = express();
@@ -21,6 +22,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/orders', orderRoutes); // ORDER ROUTES ADDED
 app.use('/api/products', productRoutes); // PRODUCT ROUTES ADDED
+app.use('/api/settings', settingsRoutes);
 
 // --- 404 Handler ---
 app.use((req, res) => {
