@@ -113,6 +113,9 @@ const ensureOrderTableSchema = async (connection) => {
           subCategory VARCHAR(255) DEFAULT 'General',
           price DECIMAL(10,2) NOT NULL,
           image_url VARCHAR(500) DEFAULT '',
+          color_name VARCHAR(80) DEFAULT 'Default',
+          color_hex VARCHAR(20) DEFAULT '#111111',
+          sizes TEXT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )

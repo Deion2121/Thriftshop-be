@@ -44,6 +44,8 @@ const parseSizes = (sizes) => {
 const normalizeProductRow = (product = {}) => ({
   ...product,
   sizes: parseSizes(product.sizes),
+  colorName: product.colorName || product.color_name || 'Default',
+  colorHex: product.colorHex || product.color_hex || '#111111',
 });
 
 const productSchema = Joi.object({
@@ -59,6 +61,12 @@ const productSchema = Joi.object({
     )
     .default([]),
   image: Joi.string().trim().uri({ allowRelative: true }).max(500).allow('').default(''),
+  colorName: Joi.string().trim().max(80).allow('').default('Default'),
+  colorHex: Joi.string()
+    .trim()
+    .pattern(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)
+    .allow('')
+    .default('#111111'),
 }).required();
 
 const validateId = (value) => {
@@ -79,15 +87,27 @@ const ensureTableExists = async () => {
         subCategory VARCHAR(255) DEFAULT 'General',
         price DECIMAL(10,2) NOT NULL,
         image_url VARCHAR(500) DEFAULT '',
+        color_name VARCHAR(80) DEFAULT 'Default',
+        color_hex VARCHAR(20) DEFAULT '#111111',
         sizes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
 
-    const [columns] = await db.query("SHOW COLUMNS FROM products LIKE 'sizes'");
-    if (columns.length === 0) {
+    const [sizesColumns] = await db.query("SHOW COLUMNS FROM products LIKE 'sizes'");
+    if (sizesColumns.length === 0) {
       await db.query('ALTER TABLE products ADD COLUMN sizes TEXT NULL AFTER image_url');
+    }
+
+    const [colorNameColumns] = await db.query("SHOW COLUMNS FROM products LIKE 'color_name'");
+    if (colorNameColumns.length === 0) {
+      await db.query("ALTER TABLE products ADD COLUMN color_name VARCHAR(80) DEFAULT 'Default' AFTER image_url");
+    }
+
+    const [colorHexColumns] = await db.query("SHOW COLUMNS FROM products LIKE 'color_hex'");
+    if (colorHexColumns.length === 0) {
+      await db.query("ALTER TABLE products ADD COLUMN color_hex VARCHAR(20) DEFAULT '#111111' AFTER color_name");
     }
 
     return true;
@@ -202,12 +222,22 @@ router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, re
       return res.status(400).json({ message: error.details[0].message });
     }
 
-    const { name, brand, category, subCategory, price, image } = value;
+    const { name, brand, category, subCategory, price, image, colorName, colorHex } = value;
     const sizes = parseSizes(value.sizes);
 
     const [result] = await db.query(
-      'INSERT INTO products (name, brand, category, subCategory, price, image_url, sizes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, brand, category, subCategory || 'General', Number(price), image || '', JSON.stringify(sizes)]
+      'INSERT INTO products (name, brand, category, subCategory, price, image_url, color_name, color_hex, sizes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        name,
+        brand,
+        category,
+        subCategory || 'General',
+        Number(price),
+        image || '',
+        colorName || 'Default',
+        colorHex || '#111111',
+        JSON.stringify(sizes),
+      ]
     );
 
     if (!result || !result.insertId) {
@@ -222,6 +252,8 @@ router.post('/', authMiddleware, adminMiddleware, csrfProtection, async (req, re
       subCategory: subCategory || 'General',
       price: Number(price),
       image_url: image || '',
+      colorName: colorName || 'Default',
+      colorHex: colorHex || '#111111',
       sizes
     });
   } catch (err) {
@@ -248,12 +280,23 @@ router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, 
       return res.status(400).json({ message: error.details[0].message });
     }
 
-    const { name, brand, category, subCategory, price, image } = value;
+    const { name, brand, category, subCategory, price, image, colorName, colorHex } = value;
     const sizes = parseSizes(value.sizes);
 
     const [result] = await db.query(
-      'UPDATE products SET name=?, brand=?, category=?, subCategory=?, price=?, image_url=?, sizes=? WHERE id=?',
-      [name, brand, category, subCategory || 'General', Number(price), image || '', JSON.stringify(sizes), productId]
+      'UPDATE products SET name=?, brand=?, category=?, subCategory=?, price=?, image_url=?, color_name=?, color_hex=?, sizes=? WHERE id=?',
+      [
+        name,
+        brand,
+        category,
+        subCategory || 'General',
+        Number(price),
+        image || '',
+        colorName || 'Default',
+        colorHex || '#111111',
+        JSON.stringify(sizes),
+        productId,
+      ]
     );
 
     if (result.affectedRows === 0) {
@@ -268,6 +311,8 @@ router.put('/:id', authMiddleware, adminMiddleware, csrfProtection, async (req, 
       subCategory: subCategory || 'General',
       price: Number(price),
       image_url: image || '',
+      colorName: colorName || 'Default',
+      colorHex: colorHex || '#111111',
       sizes
     });
   } catch (err) {
